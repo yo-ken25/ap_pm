@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#172033">
+<title>AP PDF Write — 応用情報 午後演習</title>
+<style>
+:root{--bg:#eef1f6;--panel:#fff;--ink:#172033;--muted:#657086;--accent:#2563eb;--line:#dce2eb}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);background:var(--bg)}
+body{display:flex;flex-direction:column;overflow:hidden}
+header{background:#172033;color:#fff;padding:10px 14px;display:flex;align-items:center;gap:12px;min-height:54px}
+header strong{font-size:15px;white-space:nowrap} header .filename{font-size:12px;color:#cbd5e1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+button,.filelabel,select{font:inherit;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);padding:8px 11px;min-height:38px}
+button{cursor:pointer}button:disabled{opacity:.4;cursor:not-allowed}
+header button{background:#26344d;color:#fff;border-color:#41516c}
+.filelabel{display:inline-flex;align-items:center;justify-content:center;cursor:pointer;background:#fff;color:#172033;font-size:13px;font-weight:600}
+input[type=file]{display:none}
+.toolbar{display:flex;align-items:center;gap:7px;padding:9px 12px;background:#fff;border-bottom:1px solid var(--line);overflow-x:auto;flex-shrink:0}
+.tool{white-space:nowrap;font-size:13px}.tool.active{background:#e7efff;border-color:#8bb0ff;color:#1749ad;font-weight:700}
+.toolbar .sep{width:1px;height:28px;background:var(--line);margin:0 2px;flex-shrink:0}
+.toolbar label{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:5px;white-space:nowrap}
+.toolbar input[type=color]{width:30px;height:30px;padding:0;border:0;background:none}
+.toolbar input[type=range]{width:78px}
+main{flex:1;min-height:0;display:flex;flex-direction:column}
+.status{display:flex;align-items:center;justify-content:center;gap:10px;padding:6px 10px;color:var(--muted);font-size:12px;flex-shrink:0}
+.viewer{flex:1;min-height:0;overflow:auto;padding:14px;display:flex;justify-content:center;align-items:flex-start;touch-action:pan-x pan-y}
+.pagewrap{position:relative;background:#fff;box-shadow:0 3px 18px #17203322;line-height:0;max-width:100%;margin:0 auto}
+#pdfCanvas{display:block;max-width:100%;height:auto}
+#inkCanvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:crosshair}
+.empty{margin:auto;text-align:center;max-width:440px;padding:30px;color:var(--muted);line-height:1.7}
+.empty h2{color:var(--ink);font-size:20px}
+.footer{display:flex;justify-content:center;align-items:center;gap:12px;padding:9px;background:#fff;border-top:1px solid var(--line);flex-shrink:0}
+.footer button{min-width:44px}.pageinfo{font-variant-numeric:tabular-nums;font-size:13px;color:var(--muted)}
+#busy{display:none;position:fixed;inset:0;background:#17203388;color:#fff;z-index:5;align-items:center;justify-content:center;font-weight:600}
+.note{font-size:11px;color:var(--muted);padding:0 12px 8px;background:#fff}
+@media(min-width:800px){.toolbar{justify-content:center}.viewer{padding:22px}.pagewrap{max-width:900px}}
+</style>
+</head>
+<body>
+<header>
+  <strong>AP PDF Write</strong>
+  <span class="filename" id="filename">PDFを読み込んでください</span>
+  <span style="flex:1"></span>
+  <label class="filelabel">PDFを開く<input id="fileInput" type="file" accept="application/pdf"></label>
+  <button id="exportBtn" disabled>書き込み込みPDFを保存</button>
+</header>
+<div class="toolbar" aria-label="書き込みツール">
+  <button class="tool active" data-tool="pen">✎ ペン</button>
+  <button class="tool" data-tool="highlighter">▰ 蛍光ペン</button>
+  <button class="tool" data-tool="eraser">消しゴム</button>
+  <span class="sep"></span>
+  <label>色 <input type="color" id="color" value="#e53935"></label>
+  <label>太さ <input type="range" id="size" min="1" max="18" value="3"><span id="sizeVal">3</span></label>
+  <span class="sep"></span>
+  <button id="undoBtn" class="tool" disabled>↶ 戻す</button>
+  <button id="redoBtn" class="tool" disabled>↷ やり直す</button>
+  <button id="clearBtn" class="tool" disabled>ページ消去</button>
+</div>
+<main>
+  <div class="status"><span id="status">PDFを選択すると、ページの上に直接書き込めます。</span><span id="saveStatus"></span></div>
+  <div class="viewer" id="viewer">
+    <div class="empty" id="empty">
+      <h2>PDFに直接書き込む</h2>
+      応用情報技術者試験の問題PDFを開いてください。<br>
+      PDF原本と手書きレイヤーは別々に保存されます。<br><br>
+      iPadではApple Pencil、Macではマウスやトラックパッドで書き込めます。
+    </div>
+    <div class="pagewrap" id="pagewrap" hidden>
+      <canvas id="pdfCanvas"></canvas>
+      <canvas id="inkCanvas"></canvas>
+    </div>
+  </div>
+  <div class="note">自動保存：このブラウザ内（IndexedDB）。同じPDFを同じ端末・ブラウザで開くと書き込みを復元します。</div>
+</main>
+<div class="footer">
+  <button id="prevBtn" disabled>←</button>
+  <span class="pageinfo" id="pageInfo">— / —</span>
+  <button id="nextBtn" disabled>→</button>
+  <span class="sep"></span>
+  <button id="zoomOut" disabled>−</button>
+  <span class="pageinfo" id="zoomInfo">幅に合わせる</span>
+  <button id="zoomIn" disabled>＋</button>
+</div>
+<div id="busy">処理中…</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const pdfCanvas=$('pdfCanvas'), inkCanvas=$('inkCanvas'), pctx=pdfCanvas.getContext('2d'), ictx=inkCanvas.getContext('2d');
+  let pdfDoc=null, originalBytes=null, docKey=null, fileName='', pageNum=1, scale=1, fitScale=1, tool='pen';
+  let pages={}, strokes=[], redoStack=[], activeStroke=null, drawing=false, renderTask=null, saveTimer=null;
+  const DB='ap-pdf-write-v1', STORE='documents';
+  if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+  function dbOpen(){return new Promise((resolve,reject)=>{const r=indexedDB.open(DB,1);r.onupgradeneeded=()=>r.result.createObjectStore(STORE);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});}
+  async function dbGet(key){const db=await dbOpen();return new Promise((resolve,reject)=>{const r=db.transaction(STORE).objectStore(STORE).get(key);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});}
+  async function dbSet(key,value){const db=await dbOpen();return new Promise((resolve,reject)=>{const tx=db.transaction(STORE,'readwrite');tx.objectStore(STORE).put(value,key);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});}
+  function setBusy(v){$('busy').style.display=v?'flex':'none';}
+  function updateButtons(){
+    $('exportBtn').disabled=!pdfDoc;
+    $('prevBtn').disabled=!pdfDoc||pageNum<=1;$('nextBtn').disabled=!pdfDoc||pageNum>=pdfDoc.numPages;
+    $('undoBtn').disabled=!strokes.length;$('redoBtn').disabled=!redoStack.length;$('clearBtn').disabled=!strokes.length;
+    $('pageInfo').textContent=pdfDoc?`${pageNum} / ${pdfDoc.numPages}`:'— / —';
+    $('zoomInfo').textContent=`${Math.round(scale*100)}%`;
+  }
+  function scheduleSave(){
+    $('saveStatus').textContent='保存中…';clearTimeout(saveTimer);
+    saveTimer=setTimeout(async()=>{try{if(docKey){pages[pageNum]=strokes;await dbSet(docKey,{pages,fileName,updated:Date.now()});$('saveStatus').textContent='保存済み';}}catch(e){$('saveStatus').textContent='保存失敗';console.error(e);}},350);
+  }
+  function drawStroke(ctx,s,w,h){
+    if(!s.points||!s.points.length)return;
+    ctx.save();ctx.lineCap='round';ctx.lineJoin='round';
+    ctx.strokeStyle=s.tool==='eraser'?'rgba(0,0,0,1)':s.color;
+    ctx.globalCompositeOperation=s.tool==='eraser'?'destination-out':'source-over';
+    ctx.globalAlpha=s.tool==='highlighter'?0.28:1;
+    ctx.lineWidth=(s.size||3)*(w/1000)*(s.tool==='highlighter'?3:1);
+    const pts=s.points.map(p=>({x:p.x*w,y:p.y*h}));
+    if(pts.length===1){ctx.beginPath();ctx.arc(pts[0].x,pts[0].y,ctx.lineWidth/2,0,Math.PI*2);ctx.fillStyle=ctx.strokeStyle;ctx.fill();}
+    else{ctx.beginPath();ctx.moveTo(pts[0].x,pts[0].y);for(let i=1;i<pts.length;i++)ctx.lineTo(pts[i].x,pts[i].y);ctx.stroke();}
+    ctx.restore();
+  }
+  function redraw(){ictx.clearRect(0,0,inkCanvas.width,inkCanvas.height);strokes.forEach(s=>drawStroke(ictx,s,inkCanvas.width,inkCanvas.height));updateButtons();}
+  function resizeInk(cssW,cssH){
+    const dpr=Math.min(window.devicePixelRatio||1,2);
+    inkCanvas.width=Math.round(cssW*dpr);inkCanvas.height=Math.round(cssH*dpr);
+    inkCanvas.style.width=cssW+'px';inkCanvas.style.height=cssH+'px';
+    redraw();
+  }
+  async function renderPage(){
+    if(!pdfDoc)return;
+    if(renderTask){try{renderTask.cancel();}catch(e){}}
+    const page=await pdfDoc.getPage(pageNum);
+    const base=page.getViewport({scale:1});
+    const available=Math.max(280,$('viewer').clientWidth-30);
+    fitScale=Math.min(available/base.width,1.7);
+    if(!scale||scale===-1)scale=fitScale;
+    const viewport=page.getViewport({scale});
+    const dpr=Math.min(window.devicePixelRatio||1,2);
+    pdfCanvas.width=Math.round(viewport.width*dpr);pdfCanvas.height=Math.round(viewport.height*dpr);
+    pdfCanvas.style.width=viewport.width+'px';pdfCanvas.style.height=viewport.height+'px';
+    $('pagewrap').style.width=viewport.width+'px';$('pagewrap').style.height=viewport.height+'px';
+    renderTask=page.render({canvasContext:pctx,viewport,transform:dpr!==1?[dpr,0,0,dpr,0,0]:null});
+    try{await renderTask.promise;}catch(e){if(e.name!=='RenderingCancelledException')throw e;}
+    resizeInk(viewport.width,viewport.height);
+    $('pagewrap').hidden=false;$('empty').hidden=true;
+    $('status').textContent=`${pageNum}ページ目 · ペンを選んで書き込めます`;
+    updateButtons();
+  }
+  async function openFile(file){
+    if(!file)return;
+    if(file.type!=='application/pdf'&&!file.name.toLowerCase().endsWith('.pdf')){alert('PDFファイルを選択してください');return;}
+    setBusy(true);
+    try{
+      fileName=file.name;originalBytes=await file.arrayBuffer();
+      docKey=`${file.name}:${file.size}:${file.lastModified}`;
+      pdfDoc=await pdfjsLib.getDocument({data:new Uint8Array(originalBytes.slice(0))}).promise;
+      const saved=await dbGet(docKey);pages=saved?.pages||{};
+      pageNum=1;scale=-1;strokes=pages[1]||[];redoStack=[];
+      $('filename').textContent=fileName;$('status').textContent=`全${pdfDoc.numPages}ページ`;
+      await renderPage();updateButtons();
+    }catch(e){console.error(e);alert('PDFを開けませんでした。PDFファイルか確認してください。');}
+    finally{setBusy(false);}
+  }
+  function pointFromEvent(e){
+    const r=inkCanvas.getBoundingClientRect();
+    return {x:Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)),y:Math.max(0,Math.min(1,(e.clientY-r.top)/r.height))};
+  }
+  inkCanvas.addEventListener('pointerdown',e=>{
+    if(!pdfDoc)return;
+    if(e.pointerType==='mouse'&&e.button!==0)return;
+    e.preventDefault();inkCanvas.setPointerCapture(e.pointerId);drawing=true;
+    activeStroke={tool,color:$('color').value,size:Number($('size').value),points:[pointFromEvent(e)]};
+    if(tool==='eraser')activeStroke.color='#000';
+    strokes.push(activeStroke);redraw();
+  });
+  inkCanvas.addEventListener('pointermove',e=>{
+    if(!drawing||!activeStroke)return;e.preventDefault();
+    activeStroke.points.push(pointFromEvent(e));redraw();
+  });
+  function finishStroke(){if(!drawing)return;drawing=false;activeStroke=null;scheduleSave();}
+  inkCanvas.addEventListener('pointerup',finishStroke);inkCanvas.addEventListener('pointercancel',finishStroke);inkCanvas.addEventListener('lostpointercapture',finishStroke);
+  document.querySelectorAll('[data-tool]').forEach(b=>b.addEventListener('click',()=>{
+    tool=b.dataset.tool;document.querySelectorAll('[data-tool]').forEach(x=>x.classList.toggle('active',x===b));
+    inkCanvas.style.cursor=tool==='eraser'?'cell':'crosshair';
+  }));
+  $('size').addEventListener('input',e=>$('sizeVal').textContent=e.target.value);
+  $('undoBtn').onclick=()=>{if(strokes.length){redoStack.push(strokes.pop());redraw();scheduleSave();}};
+  $('redoBtn').onclick=()=>{if(redoStack.length){strokes.push(redoStack.pop());redraw();scheduleSave();}};
+  $('clearBtn').onclick=()=>{if(confirm('このページの書き込みをすべて消しますか？')){strokes=[];redoStack=[];redraw();scheduleSave();}};
+  async function changePage(n){
+    if(!pdfDoc||n<1||n>pdfDoc.numPages)return;
+    pages[pageNum]=strokes;pageNum=n;strokes=pages[n]||[];redoStack=[];scale=scale||fitScale;
+    await renderPage();scheduleSave();
+  }
+  $('prevBtn').onclick=()=>changePage(pageNum-1);$('nextBtn').onclick=()=>changePage(pageNum+1);
+  $('zoomIn').onclick=async()=>{scale=Math.min(scale*1.2,3);await renderPage();};
+  $('zoomOut').onclick=async()=>{scale=Math.max(scale/1.2,.45);await renderPage();};
+  $('fileInput').addEventListener('change',e=>openFile(e.target.files[0]));
+  $('exportBtn').onclick=async()=>{
+    if(!pdfDoc)return;setBusy(true);
+    try{
+      pages[pageNum]=strokes;await dbSet(docKey,{pages,fileName,updated:Date.now()});
+      const {PDFDocument}=PDFLib;
+      const out=await PDFDocument.load(originalBytes);
+      for(let i=1;i<=pdfDoc.numPages;i++){
+        const list=pages[i]||[];if(!list.length)continue;
+        const page=out.getPage(i-1),w=page.getWidth(),h=page.getHeight();
+        const tmp=document.createElement('canvas');
+        const pdfPage=await pdfDoc.getPage(i);
+        const vp=pdfPage.getViewport({scale:1});
+        const factor=Math.min(1800/vp.width,1800/vp.height,2);
+        const renderVp=pdfPage.getViewport({scale:factor});
+        tmp.width=Math.round(renderVp.width);tmp.height=Math.round(renderVp.height);
+        const c=tmp.getContext('2d');
+        for(const s of list)drawStroke(c,s,tmp.width,tmp.height);
+        const png=await out.embedPng(tmp.toDataURL('image/png'));
+        page.drawImage(png,{x:0,y:0,width:w,height:h});
+      }
+      const bytes=await out.save();const blob=new Blob([bytes],{type:'application/pdf'});
+      const url=URL.createObjectURL(blob),a=document.createElement('a');
+      a.href=url;a.download=fileName.replace(/\.pdf$/i,'')+'_書き込み済み.pdf';a.click();
+      setTimeout(()=>URL.revokeObjectURL(url),1500);
+      $('status').textContent='書き込み込みPDFを出力しました';
+    }catch(e){console.error(e);alert('PDFの出力に失敗しました。');}
+    finally{setBusy(false);}
+  };
+  let resizeTimer;window.addEventListener('resize',()=>{if(pdfDoc){clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{scale=-1;renderPage();},250);}});
+  // enable zoom controls once a document is opened
+  const observer=new MutationObserver(()=>{if(pdfDoc){$('zoomIn').disabled=false;$('zoomOut').disabled=false;}});
+  observer.observe($('pagewrap'),{attributes:true,attributeFilter:['hidden']});
+})();
+</script>
+</body>
+</html>
